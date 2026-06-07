@@ -17,9 +17,6 @@ if (!token || !adminId) {
 
 const bot = new TelegramBot(token, { polling: true });
 
-const express = require('express');
-const cors = require('cors');
-
 // Setup Express API for Web Interface
 const app = express();
 
@@ -84,7 +81,6 @@ app.use((req, res, next) => {
   
   currentPassword = currentPassword || "admin123";
 
-  const authHeader = req.headers['authorization'];
   const queryToken = req.query.token;
 
   if (authHeader === `Bearer ${currentPassword}` || queryToken === currentPassword) {
@@ -185,7 +181,7 @@ bot.on('message', async (msg) => {
   if (!text) return;
 
   // Add/Check User
-  await db.addUser(chatId, chatId === adminId ? 'admin' : 'client');
+  await db.addUser(chatId, chatId === adminId ? 'admin' : 'client', msg.from?.first_name, msg.from?.username);
   const isAdmin = (chatId === adminId);
   
   const knownCommands = ['/start', '💰 Баланс', '📱 Купленные номера', '🛒 Купить номер', '📱 Мои номера', '💬 Общая история SMS'];
@@ -625,6 +621,21 @@ app.get('/api/numbers', async (req, res) => {
       const authData = await getAuthData();
       const fanytelNumbers = await api.listMyNumbers(authData.username, authData.token);
       
+      // Auto-sync: add any numbers from Fanytel that are missing in local DB
+      for (const fNum of fanytelNumbers) {
+        if (!activeDbNumbers.find(dbNum => dbNum.number === fNum.number)) {
+          await db.addNumber(fNum.number, null, authData.username, authData.token);
+          activeDbNumbers.push({
+            id: 'sync_' + fNum.number,
+            number: fNum.number,
+            telegram_id: null,
+            username: authData.username,
+            token: authData.token,
+            active: 1
+          });
+        }
+      }
+
       const merged = activeDbNumbers.map(dbNum => {
         const fNum = fanytelNumbers.find(n => n.number === dbNum.number);
         return {

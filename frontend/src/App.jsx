@@ -17,6 +17,7 @@ import UsersTable from './components/UsersTable';
 import SmsTable from './components/SmsTable';
 import SmsText from './components/SmsText';
 import BroadcastModal from './components/BroadcastModal';
+import NumberSmsModal from './components/NumberSmsModal';
 
 function App() {
   const [password, setPassword] = useState(() => localStorage.getItem('adminPassword') || '');
@@ -103,6 +104,7 @@ function App() {
   const [modalTitle, setModalTitle] = useState('');
   const [modalContent, setModalContent] = useState(null);
   const [showBroadcastModal, setShowBroadcastModal] = useState(false);
+  const [viewSmsNumber, setViewSmsNumber] = useState(null);
 
   const fetchWithAuth = async (endpoint, options = {}) => {
     const res = await fetch(`${API_URL}${endpoint}`, {
@@ -241,20 +243,48 @@ function App() {
   };
 
   // -- Actions --
-  const handleAssign = async (number) => {
-    const targetId = prompt(`Введите Telegram ID клиента для назначения номера +${number}:`);
-    if (!targetId) return;
-    
-    const toastId = toast.loading('Назначаем номер...');
-    try {
-      await fetchWithAuth('/numbers/assign', {
-        method: 'POST', body: JSON.stringify({ number, telegram_id: targetId })
-      });
-      toast.success('Успешно назначено!', { id: toastId });
-      loadData();
-    } catch (err) {
-      toast.error(`Ошибка: ${err.message}`, { id: toastId });
-    }
+  const handleAssign = (number) => {
+    setModalTitle(`Назначение номера +${number}`);
+    setModalContent(
+      <div>
+        <p style={{marginBottom: '16px', color: 'var(--text-secondary)'}}>Введите Telegram ID клиента, которому будет назначен этот номер:</p>
+        <form onSubmit={async (e) => {
+          e.preventDefault();
+          const targetId = e.target.telegramId.value;
+          if (!targetId) return;
+          
+          setModalContent(
+            <div style={{ textAlign: 'center' }}>
+              <Activity className="spin" size={32} color="var(--accent-primary)" style={{margin: '20px auto'}}/>
+              <p>Назначаем номер...</p>
+            </div>
+          );
+
+          try {
+            await fetchWithAuth('/numbers/assign', {
+              method: 'POST', body: JSON.stringify({ number, telegram_id: targetId })
+            });
+            toast.success('Успешно назначено!');
+            setModalOpen(false);
+            loadData();
+          } catch (err) {
+            toast.error(`Ошибка: ${err.message}`);
+            setModalOpen(false);
+          }
+        }}>
+          <input name="telegramId" type="text" className="search-input" placeholder="Например: 123456789" style={{width: '100%', marginBottom: '16px'}} autoFocus />
+          <div style={{display: 'flex', justifyContent: 'flex-end', gap: '12px'}}>
+            <button type="button" className="copy-btn" onClick={() => setModalOpen(false)} style={{padding: '8px 16px'}}>Отмена</button>
+            <button type="submit" className="btn" style={{padding: '8px 16px'}}>Назначить</button>
+          </div>
+        </form>
+      </div>
+    );
+    setModalOpen(true);
+  };
+
+  const handleViewSms = (number) => {
+    setViewSmsNumber(number);
   };
 
   const handleUnassign = async (number) => {
@@ -411,13 +441,14 @@ function App() {
             </button>
             <div>
               <h2 className="page-title">
-              {activeTab === 'dashboard' && 'Обзор системы'}
-              {activeTab === 'numbers' && 'Управление номерами'}
-              {activeTab === 'users' && 'Пользователи'}
-              {activeTab === 'sms' && 'История сообщений'}
-              {activeTab === 'settings' && 'Настройки системы'}
-            </h2>
-            <p className="page-subtitle">В реальном времени</p>
+                {activeTab === 'dashboard' && 'Обзор системы'}
+                {activeTab === 'numbers' && 'Управление номерами'}
+                {activeTab === 'users' && 'Пользователи'}
+                {activeTab === 'sms' && 'История сообщений'}
+                {activeTab === 'settings' && 'Настройки системы'}
+              </h2>
+              <p className="page-subtitle">В реальном времени</p>
+            </div>
           </div>
           <div className="page-actions">
             <button className="action-btn" onClick={() => setAutoRefresh(!autoRefresh)} title="Автообновление каждые 10 сек">
@@ -453,6 +484,7 @@ function App() {
                 copyToClipboard={copyToClipboard}
                 handleUnassign={handleUnassign}
                 handleAssign={handleAssign}
+                handleViewSms={handleViewSms}
                 getExpirationClass={getExpirationClass}
                 refreshData={loadData}
               />
@@ -495,6 +527,7 @@ function App() {
         )}
       </main>
       {showBroadcastModal && <BroadcastModal onClose={() => setShowBroadcastModal(false)} />}
+      {viewSmsNumber && <NumberSmsModal number={viewSmsNumber} allSms={sms} onClose={() => setViewSmsNumber(null)} />}
     </div>
   );
 }

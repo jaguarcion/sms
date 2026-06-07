@@ -15,6 +15,8 @@ db.serialize(() => {
   
   db.run(`ALTER TABLE users ADD COLUMN notes TEXT`, () => {});
   db.run(`ALTER TABLE users ADD COLUMN tags TEXT`, () => {});
+  db.run(`ALTER TABLE users ADD COLUMN first_name TEXT`, () => {});
+  db.run(`ALTER TABLE users ADD COLUMN username TEXT`, () => {});
 
   // Create Numbers table
   // Each number has a token and is assigned to a specific telegram_id (client)
@@ -61,11 +63,14 @@ module.exports = {
   db,
   
   // Users
-  addUser: (telegramId, role = 'client') => {
+  addUser: (telegramId, role = 'client', firstName = null, username = null) => {
     return new Promise((resolve, reject) => {
       db.run(`INSERT OR IGNORE INTO users (telegram_id, role) VALUES (?, ?)`, [telegramId, role], function(err) {
-        if (err) reject(err);
-        else resolve(this.lastID);
+        if (err) return reject(err);
+        db.run(`UPDATE users SET first_name = ?, username = ? WHERE telegram_id = ?`, [firstName, username, telegramId], function(err2) {
+          if (err2) reject(err2);
+          else resolve(telegramId);
+        });
       });
     });
   },

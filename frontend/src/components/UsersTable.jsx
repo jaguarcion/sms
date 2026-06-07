@@ -30,7 +30,7 @@ export default function UsersTable({
     return true;
   });
 
-  const filtered = filterAndSortData(baseFiltered, ['telegram_id', 'role'], searchQuery, sortConfig);
+  const filtered = filterAndSortData(baseFiltered, ['telegram_id', 'role', 'first_name', 'username'], searchQuery, sortConfig);
   const paginated = paginate(filtered, currentPage, ITEMS_PER_PAGE);
 
   return (
@@ -61,6 +61,7 @@ export default function UsersTable({
             <thead>
               <tr>
                 <th onClick={() => handleSort('id')} style={{cursor: 'pointer', userSelect: 'none'}}>ID в базе {sortConfig.key === 'id' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}</th>
+                <th onClick={() => handleSort('first_name')} style={{cursor: 'pointer', userSelect: 'none'}}>Пользователь {sortConfig.key === 'first_name' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}</th>
                 <th onClick={() => handleSort('telegram_id')} style={{cursor: 'pointer', userSelect: 'none'}}>Telegram ID {sortConfig.key === 'telegram_id' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}</th>
                 <th>Назначенные номера</th>
                 <th onClick={() => handleSort('role')} style={{cursor: 'pointer', userSelect: 'none'}}>Роль {sortConfig.key === 'role' ? (sortConfig.direction === 'asc' ? '↑' : '↓') : ''}</th>
@@ -70,6 +71,23 @@ export default function UsersTable({
               {paginated.map((u) => (
                 <tr key={u.id} onClick={() => setSelectedUser(u)} style={{cursor: 'pointer'}} title="Кликните для просмотра профиля">
                   <td>{u.id}</td>
+                  <td>
+                    {u.first_name || u.username ? (
+                      <div style={{fontWeight: 500}}>
+                        {u.username ? (
+                          <a href={`https://t.me/${u.username}`} target="_blank" rel="noopener noreferrer" style={{color: 'var(--accent-primary)', textDecoration: 'none'}}>
+                            {u.first_name || 'Без имени'} (@{u.username})
+                          </a>
+                        ) : (
+                          <a href={`tg://user?id=${u.telegram_id}`} style={{color: 'var(--text-primary)', textDecoration: 'none'}}>
+                            {u.first_name}
+                          </a>
+                        )}
+                      </div>
+                    ) : (
+                      <span style={{color: 'var(--text-secondary)', fontSize: 13}}>—</span>
+                    )}
+                  </td>
                   <td>
                     <a href={`tg://user?id=${u.telegram_id}`} className="action-btn" style={{margin: 0}} onClick={(e) => e.stopPropagation()}>
                       <LinkIcon size={14} /> {u.telegram_id}
