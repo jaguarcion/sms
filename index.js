@@ -17,10 +17,53 @@ if (!token || !adminId) {
 
 const bot = new TelegramBot(token, { polling: true });
 
+const express = require('express');
+const cors = require('cors');
+
 // Setup Express API for Web Interface
 const app = express();
-app.use(cors());
+
+const corsOptions = {
+  origin: ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173'], // Allow standard local dev ports
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 app.use(express.json());
+
+// Rate Limiter to prevent Brute Force
+const rateLimits = {};
+app.use((req, res, next) => {
+  const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  
+  if (!rateLimits[ip]) {
+    rateLimits[ip] = { count: 1, resetTime: now + 60000 };
+  } else {
+    if (now > rateLimits[ip].resetTime) {
+      rateLimits[ip] = { count: 1, resetTime: now + 60000 };
+    } else {
+      rateLimits[ip].count++;
+      if (rateLimits[ip].count > 50) {
+        return res.status(429).json({ error: "Слишком много запросов. Подождите 1 минуту." });
+      }
+    }
+  }
+  next();
+});
+
+// SSE Clients
+let sseClients = [];
+function broadcastEvent(type, payload) {
+  const data = JSON.stringify({ type, payload });
+  sseClients.forEach(client => {
+    try {
+      client.write(`data: ${data}\n\n`);
+    } catch (e) {}
+  });
+}
+
+// Active Sessions tracking
+const activeSessions = {};
 
 // API Auth Middleware
 app.use((req, res, next) => {
@@ -41,7 +84,22 @@ app.use((req, res, next) => {
   
   currentPassword = currentPassword || "admin123";
 
-  if (authHeader === `Bearer ${currentPassword}`) {
+  const authHeader = req.headers['authorization'];
+  const queryToken = req.query.token;
+
+  if (authHeader === `Bearer ${currentPassword}` || queryToken === currentPassword) {
+    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || req.socket.remoteAddress || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'Unknown Device';
+    
+    // Only track actual API calls or page loads, not SSE pings if they exist
+    if (req.path !== '/api/events') {
+      activeSessions[ip] = {
+        ip,
+        userAgent,
+        lastSeen: Date.now()
+      };
+    }
+    req.clientIp = ip;
     next();
   } else {
     res.status(401).json({ error: "Unauthorized" });
@@ -446,9 +504,12 @@ async function pollSms() {
       // Try to add to history. If it's a new message, addSmsRecord returns true
       const isNew = await db.addSmsRecord(numRow.number, messageId, sender, text);
       
-      if (isNew && numRow.telegram_id) {
-        const smsText = `🔔 <b>Новое SMS на номер +${numRow.number}</b>\nОт: ${sender}\nСообщение:\n${text}`;
-        bot.sendMessage(numRow.telegram_id, smsText, { parse_mode: 'HTML' });
+      if (isNew) {
+        broadcastEvent('new_sms', { id: messageId, number: numRow.number, sender, message_text: text, received_at: Date.now() });
+        if (numRow.telegram_id) {
+          const smsText = `🔔 <b>Новое SMS на номер +${numRow.number}</b>\nОт: ${sender}\nСообщение:\n${text}`;
+          bot.sendMessage(numRow.telegram_id, smsText, { parse_mode: 'HTML' });
+        }
       }
     }
   } catch (err) {
@@ -512,7 +573,31 @@ setInterval(pollSms, 3000);
 setTimeout(checkExpirations, 5000);
 setInterval(checkExpirations, 24 * 60 * 60 * 1000);
 
+// Auto-cleanup SMS older than 30 days every 12 hours
+setInterval(async () => {
+  try {
+    const deletedCount = await db.deleteOldSms(30);
+    if (deletedCount > 0) {
+      console.log(`Auto-cleanup: Deleted ${deletedCount} old SMS messages.`);
+    }
+  } catch (err) {
+    console.error("SMS cleanup error:", err.message);
+  }
+}, 12 * 60 * 60 * 1000);
+
 // Express Endpoints
+app.get('/api/events', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  
+  sseClients.push(res);
+  req.on('close', () => {
+    sseClients = sseClients.filter(c => c !== res);
+  });
+});
+
 app.get('/api/stats', async (req, res) => {
   try {
     const authData = await getAuthData();
@@ -575,10 +660,21 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
+app.post('/api/users/:telegram_id/notes', async (req, res) => {
+  try {
+    const { notes, tags } = req.body;
+    await db.updateUserNotes(req.params.telegram_id, notes, tags);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/sms/:number', async (req, res) => {
   try {
     const rows = await db.getSmsForNumber(req.params.number);
-    res.json(rows);
+    // Anti-DoS Limit 
+    res.json(rows.slice(0, 100));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -596,6 +692,8 @@ app.post('/api/numbers/assign', async (req, res) => {
     }
     
     await db.addNumber(number, targetId, numberRow.username, numberRow.token);
+    await db.updateUserRole(targetId, 'client');
+    db.logAction('ASSIGN_NUMBER', req.clientIp, { number, telegram_id });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -609,6 +707,7 @@ app.post('/api/numbers/unassign', async (req, res) => {
     if (!numberRow) return res.status(404).json({ error: "Number not found" });
     
     await db.deactivateNumber(number);
+    db.logAction('UNASSIGN_NUMBER', req.clientIp, { number });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -639,7 +738,8 @@ app.post('/api/numbers/purchase', async (req, res) => {
     
     // Save to our DB as unassigned
     await db.addNumber(number, null, authData.username, authData.token);
-    res.json({ success: true });
+    db.logAction('PURCHASE_NUMBER', req.clientIp, { number });
+    res.json({ success: true, number });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -667,6 +767,7 @@ app.post('/api/broadcast', async (req, res) => {
       }
     }
     
+    db.logAction('BROADCAST', req.clientIp, { messageLength: message.length, usersCount: users.length });
     res.json({ success: true, count });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -690,6 +791,26 @@ app.get('/api/sms', async (req, res) => {
   }
 });
 
+app.delete('/api/sms/clear', async (req, res) => {
+  try {
+    const changes = await db.clearAllSms();
+    db.logAction('CLEAR_SMS_HISTORY', req.clientIp, { deletedCount: changes });
+    broadcastEvent('clear_sms', {});
+    res.json({ success: true, count: changes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/audit', async (req, res) => {
+  try {
+    const logs = await db.getAuditLogs();
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // [F-4] Settings endpoints
 app.get('/api/settings/status', async (req, res) => {
   try {
@@ -702,11 +823,28 @@ app.get('/api/settings/status', async (req, res) => {
   }
 });
 
+app.get('/api/settings/sessions', (req, res) => {
+  // Clear old sessions (older than 24 hours)
+  const now = Date.now();
+  for (const ip in activeSessions) {
+    if (now - activeSessions[ip].lastSeen > 24 * 60 * 60 * 1000) {
+      delete activeSessions[ip];
+    }
+  }
+  const sessions = Object.values(activeSessions).sort((a, b) => b.lastSeen - a.lastSeen);
+  res.json(sessions);
+});
+
 app.post('/api/settings/password', async (req, res) => {
   try {
     const { newPassword } = req.body;
     if (!newPassword || newPassword.length < 5) {
       return res.status(400).json({ error: "Password must be at least 5 characters" });
+    }
+    
+    // Security: Validate password to prevent Env Injection (\n, quotes, backticks)
+    if (/[\r\n"'`]/.test(newPassword)) {
+      return res.status(400).json({ error: "Пароль содержит недопустимые символы (кавычки или переносы строк)" });
     }
     
     // Update .env file
@@ -724,8 +862,9 @@ app.post('/api/settings/password', async (req, res) => {
     fs.writeFileSync(envPath, envContent);
     
     // Update process.env for current runtime
-    process.env.ADMIN_PASSWORD = newPassword;
-    
+    await db.setSetting('adminPassword', newPassword);
+    currentPassword = newPassword;
+    db.logAction('CHANGE_PASSWORD', req.clientIp, {});
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

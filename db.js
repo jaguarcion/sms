@@ -5,12 +5,16 @@ const dbPath = path.join(__dirname, 'fanytel.sqlite');
 const db = new sqlite3.Database(dbPath);
 
 db.serialize(() => {
-  // Create Users table
   db.run(`CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY,
     telegram_id INTEGER UNIQUE,
-    role TEXT DEFAULT 'client'
+    role TEXT DEFAULT 'client',
+    notes TEXT,
+    tags TEXT
   )`);
+  
+  db.run(`ALTER TABLE users ADD COLUMN notes TEXT`, () => {});
+  db.run(`ALTER TABLE users ADD COLUMN tags TEXT`, () => {});
 
   // Create Numbers table
   // Each number has a token and is assigned to a specific telegram_id (client)
@@ -43,6 +47,14 @@ db.serialize(() => {
     key TEXT PRIMARY KEY,
     value TEXT
   )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY,
+    action TEXT,
+    ip TEXT,
+    details TEXT,
+    timestamp INTEGER
+  )`);
 });
 
 module.exports = {
@@ -72,6 +84,15 @@ module.exports = {
       db.all(`SELECT * FROM users`, [], (err, rows) => {
         if (err) reject(err);
         else resolve(rows);
+      });
+    });
+  },
+
+  updateUserNotes: (telegramId, notes, tags) => {
+    return new Promise((resolve, reject) => {
+      db.run(`UPDATE users SET notes = ?, tags = ? WHERE telegram_id = ?`, [notes, tags, telegramId], function(err) {
+        if (err) reject(err);
+        else resolve(this.changes);
       });
     });
   },
@@ -170,6 +191,25 @@ module.exports = {
     });
   },
 
+  clearAllSms: () => {
+    return new Promise((resolve, reject) => {
+      db.run(`DELETE FROM sms_history`, function(err) {
+        if (err) reject(err);
+        else resolve(this.changes);
+      });
+    });
+  },
+
+  deleteOldSms: (days) => {
+    return new Promise((resolve, reject) => {
+      const threshold = Date.now() - (days * 24 * 60 * 60 * 1000);
+      db.run(`DELETE FROM sms_history WHERE received_at < ?`, [threshold], function(err) {
+        if (err) reject(err);
+        else resolve(this.changes);
+      });
+    });
+  },
+
   // Settings
   setSetting: (key, value) => {
     return new Promise((resolve, reject) => {
@@ -185,6 +225,24 @@ module.exports = {
       db.get(`SELECT value FROM settings WHERE key = ?`, [key], (err, row) => {
         if (err) reject(err);
         else resolve(row ? row.value : null);
+      });
+    });
+  },
+
+  // Audit Logs
+  logAction: (action, ip, details) => {
+    return new Promise((resolve) => {
+      db.run(`INSERT INTO audit_logs (action, ip, details, timestamp) VALUES (?, ?, ?, ?)`, 
+        [action, ip, JSON.stringify(details), Date.now()], 
+        () => resolve()
+      );
+    });
+  },
+
+  getAuditLogs: () => {
+    return new Promise((resolve, reject) => {
+      db.all(`SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 200`, [], (err, rows) => {
+        if (err) reject(err); else resolve(rows);
       });
     });
   }
