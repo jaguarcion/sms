@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Monitor, Smartphone } from 'lucide-react';
 import { format } from 'date-fns';
 
+const API_URL = import.meta.env.DEV ? 'http://localhost:3000/api' : '/api';
+
 export default function SettingsPanel({ fanytelStatus, handleChangePassword }) {
   const [sessions, setSessions] = useState([]);
   const [auditLogs, setAuditLogs] = useState([]);
@@ -10,14 +12,14 @@ export default function SettingsPanel({ fanytelStatus, handleChangePassword }) {
     const fetchSessions = async () => {
       try {
         const password = localStorage.getItem('adminPassword');
-        const res = await fetch('http://localhost:3000/api/settings/sessions', {
+        const res = await fetch(`${API_URL}/settings/sessions`, {
           headers: { 'Authorization': `Bearer ${password}` }
         });
         if (res.ok) {
           setSessions(await res.json());
         }
 
-        const res2 = await fetch('http://localhost:3000/api/audit', {
+        const res2 = await fetch(`${API_URL}/audit`, {
           headers: { 'Authorization': `Bearer ${password}` }
         });
         if (res2.ok) {

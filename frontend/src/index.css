@@ -93,7 +93,7 @@ body {
   gap: 12px;
   font-size: 24px;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
   letter-spacing: -0.5px;
 }
 
