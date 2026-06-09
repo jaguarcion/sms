@@ -63,7 +63,7 @@ function broadcastEvent(type, payload) {
 const activeSessions = {};
 
 // API Auth Middleware
-app.use((req, res, next) => {
+app.use('/api', (req, res, next) => {
   const authHeader = req.headers['authorization'];
   
   // Read dynamically to allow instant updates
