@@ -8,7 +8,7 @@ import { format, differenceInDays, parseISO } from 'date-fns';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import toast, { Toaster } from 'react-hot-toast';
 
-const API_URL = 'http://localhost:3000/api';
+const API_URL = import.meta.env.DEV ? 'http://localhost:3000/api' : '/api';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import SettingsPanel from './components/SettingsPanel';
@@ -243,44 +243,106 @@ function App() {
   };
 
   // -- Actions --
-  const handleAssign = (number) => {
+  const handleAssign = async (number) => {
     setModalTitle(`Назначение номера +${number}`);
     setModalContent(
-      <div>
-        <p style={{marginBottom: '16px', color: 'var(--text-secondary)'}}>Введите Telegram ID клиента, которому будет назначен этот номер:</p>
-        <form onSubmit={async (e) => {
-          e.preventDefault();
-          const targetId = e.target.telegramId.value;
-          if (!targetId) return;
-          
-          setModalContent(
-            <div style={{ textAlign: 'center' }}>
-              <Activity className="spin" size={32} color="var(--accent-primary)" style={{margin: '20px auto'}}/>
-              <p>Назначаем номер...</p>
-            </div>
-          );
-
-          try {
-            await fetchWithAuth('/numbers/assign', {
-              method: 'POST', body: JSON.stringify({ number, telegram_id: targetId })
-            });
-            toast.success('Успешно назначено!');
-            setModalOpen(false);
-            loadData();
-          } catch (err) {
-            toast.error(`Ошибка: ${err.message}`);
-            setModalOpen(false);
-          }
-        }}>
-          <input name="telegramId" type="text" className="search-input" placeholder="Например: 123456789" style={{width: '100%', marginBottom: '16px'}} autoFocus />
-          <div style={{display: 'flex', justifyContent: 'flex-end', gap: '12px'}}>
-            <button type="button" className="copy-btn" onClick={() => setModalOpen(false)} style={{padding: '8px 16px'}}>Отмена</button>
-            <button type="submit" className="btn" style={{padding: '8px 16px'}}>Назначить</button>
-          </div>
-        </form>
+      <div style={{ textAlign: 'center' }}>
+        <Activity className="spin" size={32} color="var(--accent-primary)" style={{margin: '20px auto'}}/>
+        <p>Загрузка списка пользователей...</p>
       </div>
     );
     setModalOpen(true);
+
+    try {
+      const usersList = await fetchWithAuth('/users');
+      
+      setModalContent(
+        (() => {
+          const assignNumberToUser = async (targetId) => {
+            setModalContent(
+              <div style={{ textAlign: 'center' }}>
+                <Activity className="spin" size={32} color="var(--accent-primary)" style={{margin: '20px auto'}}/>
+                <p>Назначаем номер...</p>
+              </div>
+            );
+
+            try {
+              await fetchWithAuth('/numbers/assign', {
+                method: 'POST', body: JSON.stringify({ number, telegram_id: targetId })
+              });
+              toast.success('Успешно назначено!');
+              setModalOpen(false);
+              loadData();
+            } catch (err) {
+              toast.error(`Ошибка: ${err.message}`);
+              setModalOpen(false);
+            }
+          };
+
+          return (
+            <div>
+              <p style={{marginBottom: '16px', color: 'var(--text-secondary)'}}>Выберите клиента из списка или введите Telegram ID вручную:</p>
+              
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const manualId = e.target.telegramIdManual.value;
+                if (!manualId) return toast.error('Укажите ID пользователя');
+                assignNumberToUser(manualId);
+              }}>
+                <div style={{display: 'flex', gap: '8px', marginBottom: '16px'}}>
+                  <input name="telegramIdManual" type="text" className="search-input" placeholder="Ввести ID вручную (Например: 123456789)" style={{flex: 1}} />
+                  <button type="submit" className="btn">Назначить</button>
+                </div>
+              </form>
+
+              <p style={{marginBottom: '12px', fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center', fontWeight: 600}}>ИЛИ ВЫБЕРИТЕ ИЗ ДОСТУПНЫХ</p>
+              
+              <div style={{maxHeight: '300px', overflowY: 'auto', background: 'var(--bg-primary)', borderRadius: '8px', border: '1px solid var(--border-color)', padding: '8px', display: 'flex', flexDirection: 'column', gap: '8px'}}>
+                {usersList.map(u => (
+                  <div key={u.id} style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'var(--bg-card)', borderRadius: '6px', border: '1px solid var(--border-color)'}}>
+                    <div style={{display: 'flex', flexDirection: 'column', gap: '4px'}}>
+                      <div style={{fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px'}}>
+                        {u.telegram_id} {u.role === 'admin' ? <span className="badge warning">Админ</span> : ''}
+                      </div>
+                      <div style={{fontSize: 13, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px'}}>
+                        {u.username ? (
+                          <a href={`https://t.me/${u.username}`} target="_blank" rel="noopener noreferrer" style={{color: 'var(--accent-primary)', textDecoration: 'none'}}>
+                            @{u.username}
+                          </a>
+                        ) : u.first_name ? (
+                          <span>{u.first_name}</span>
+                        ) : (
+                          <span>Без имени</span>
+                        )}
+                        <span>•</span>
+                        <span>
+                          {u.assigned_numbers && u.assigned_numbers.length > 0 ? (
+                            <span style={{color: 'var(--accent-success)'}}>✅ У номера ({u.assigned_numbers.length})</span>
+                          ) : (
+                            <span style={{color: 'var(--accent-warning)'}}>❌ Нет номеров</span>
+                          )}
+                        </span>
+                      </div>
+                      {u.notes && <div style={{fontSize: 12, color: 'var(--text-secondary)', fontStyle: 'italic'}}>{u.notes}</div>}
+                    </div>
+                    <button className="action-btn success" style={{margin: 0}} onClick={() => assignNumberToUser(u.telegram_id)}>
+                      Выбрать
+                    </button>
+                  </div>
+                ))}
+                {usersList.length === 0 && <p style={{textAlign: 'center', padding: '12px', color: 'var(--text-secondary)'}}>Нет доступных пользователей</p>}
+              </div>
+              
+              <div style={{display: 'flex', justifyContent: 'flex-end', marginTop: '16px'}}>
+                <button type="button" className="copy-btn" onClick={() => setModalOpen(false)} style={{padding: '8px 16px'}}>Отмена</button>
+              </div>
+            </div>
+          );
+        })()
+      );
+    } catch (err) {
+      setModalContent(<p style={{color: 'var(--accent-danger)'}}>Ошибка загрузки пользователей: {err.message}</p>);
+    }
   };
 
   const handleViewSms = (number) => {

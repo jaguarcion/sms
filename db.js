@@ -102,6 +102,19 @@ module.exports = {
     });
   },
 
+  updateUserRole: (telegramId, role) => {
+    return new Promise((resolve, reject) => {
+      // First ensure user exists, then update role
+      db.run(`INSERT OR IGNORE INTO users (telegram_id, role) VALUES (?, ?)`, [telegramId, role], function(err) {
+        if (err) return reject(err);
+        db.run(`UPDATE users SET role = ? WHERE telegram_id = ?`, [role, telegramId], function(err2) {
+          if (err2) reject(err2);
+          else resolve(this.changes);
+        });
+      });
+    });
+  },
+
   // Numbers
   addNumber: (number, telegramId, username, token) => {
     return new Promise((resolve, reject) => {

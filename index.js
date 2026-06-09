@@ -111,6 +111,15 @@ const userStates = {};
 // Cache auth data to prevent 500 rate-limit errors from Fanytel
 let cachedAuthData = null;
 let lastLoginTime = 0;
+let fanytelAuthFailed = false;
+
+async function clearAuthCache() {
+  cachedAuthData = null;
+  lastLoginTime = 0;
+  fanytelAuthFailed = true; // Mark as failed so polling stops until re-authorized
+  await db.setSetting('fanytel_username', null);
+  await db.setSetting('fanytel_token', null);
+}
 
 async function getAuthData() {
   const now = Date.now();
@@ -130,19 +139,22 @@ async function getAuthData() {
     return cachedAuthData;
   }
 
-  // If not in database, login using Firebase URL
-  if (!firebaseAuthUrl) {
-    throw new Error("No Fanytel credentials in DB and FIREBASE_AUTH_URL is not set");
+  try {
+    cachedAuthData = await api.login(firebaseAuthUrl);
+    lastLoginTime = now;
+    fanytelAuthFailed = false; // Successfully authorized!
+    
+    // Save to DB so we never need the Firebase URL again!
+    await db.setSetting('fanytel_username', cachedAuthData.username);
+    await db.setSetting('fanytel_token', cachedAuthData.token);
+
+    return cachedAuthData;
+  } catch (err) {
+    if (err.message && err.message.includes('401')) {
+      fanytelAuthFailed = true;
+    }
+    throw err;
   }
-
-  cachedAuthData = await api.login(firebaseAuthUrl);
-  lastLoginTime = now;
-  
-  // Save to DB so we never need the Firebase URL again!
-  await db.setSetting('fanytel_username', cachedAuthData.username);
-  await db.setSetting('fanytel_token', cachedAuthData.token);
-
-  return cachedAuthData;
 }
 
 // Keyboards
@@ -475,6 +487,9 @@ async function pollSms() {
   try {
     // Only poll if we have an admin and firebase URL configured
     if (!firebaseAuthUrl) return;
+    
+    // Stop spamming logs if Fanytel is unauthorized. It will resume when admin checks stats/settings.
+    if (fanytelAuthFailed) return;
 
     // We login once per poll (or we could cache the token)
     const authData = await getAuthData();
@@ -509,13 +524,16 @@ async function pollSms() {
       }
     }
   } catch (err) {
+    if (err.message && err.message.includes('401')) {
+      await clearAuthCache();
+    }
     console.error("Polling error:", err.message);
   }
 }
 
 async function checkExpirations() {
   try {
-    if (!firebaseAuthUrl) return;
+    if (!firebaseAuthUrl || fanytelAuthFailed) return;
     const authData = await getAuthData();
     const myNumbers = await api.listMyNumbers(authData.username, authData.token);
     
@@ -608,6 +626,9 @@ app.get('/api/stats', async (req, res) => {
       assignedNumbers: numbers.filter(n => n.telegram_id !== null).length
     });
   } catch (err) {
+    if (err.message && err.message.includes('401')) {
+      await clearAuthCache();
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -705,6 +726,14 @@ app.post('/api/numbers/assign', async (req, res) => {
     await db.addNumber(number, targetId, numberRow.username, numberRow.token);
     await db.updateUserRole(targetId, 'client');
     db.logAction('ASSIGN_NUMBER', req.clientIp, { number, telegram_id });
+    
+    // Notify the user via Telegram
+    try {
+      await bot.sendMessage(targetId, `✅ **Вам выдан новый номер:** \`+${number}\`\n\nТеперь все SMS, приходящие на этот номер, будут пересылаться сюда.`, { parse_mode: 'Markdown' });
+    } catch (e) {
+      console.error(`Не удалось отправить уведомление пользователю ${targetId}:`, e.message);
+    }
+    
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -882,7 +911,14 @@ app.post('/api/settings/password', async (req, res) => {
   }
 });
 
-const PORT = 3000;
+// Serve Frontend in Production
+const path = require('path');
+app.use(express.static(path.join(__dirname, 'frontend/dist')));
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'frontend/dist/index.html'));
+});
+
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Web Admin API is running on http://localhost:${PORT}`);
 });
