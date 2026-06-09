@@ -914,7 +914,9 @@ app.post('/api/settings/password', async (req, res) => {
 // Serve Frontend in Production
 const path = require('path');
 app.use(express.static(path.join(__dirname, 'frontend/dist')));
-app.get('*', (req, res) => {
+
+// Fallback for React Router SPA (Express 5 compatible regex)
+app.get(/^\/(.*)/, (req, res) => {
   res.sendFile(path.join(__dirname, 'frontend/dist/index.html'));
 });
 
