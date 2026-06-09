@@ -442,20 +442,20 @@ function App() {
           <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
             <ShieldCheck size={48} color="var(--accent-primary)" />
           </div>
-          <h1>Fanytel Admin</h1>
-          <p>Введите пароль для доступа к панели</p>
+          <h1 style={{ marginBottom: 8, fontSize: '2rem' }}>Fanytel Admin</h1>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: 32 }}>Введите пароль для доступа к панели</p>
           <form onSubmit={handleLogin}>
-            <div className="input-group">
-              <label>Пароль доступа</label>
+            <div className="input-group" style={{ marginBottom: 24 }}>
+              <label style={{ marginBottom: 8, display: 'block', fontSize: 14 }}>Пароль доступа</label>
               <input 
                 type="password" 
                 className="form-input" 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="admin123"
+                placeholder="Введите пароль..."
               />
             </div>
-            <button type="submit" className="btn" style={{width: '100%'}} disabled={loading}>
+            <button type="submit" className="btn" style={{ width: '100%', padding: '12px', fontSize: 16 }} disabled={loading}>
               {loading ? 'Вход...' : 'Войти'}
             </button>
           </form>
