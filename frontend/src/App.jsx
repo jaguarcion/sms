@@ -40,6 +40,16 @@ function App() {
 
   useEffect(() => {
     localStorage.setItem('activeTab', activeTab);
+    
+    // Update document title dynamically
+    const tabTitles = {
+      dashboard: 'Дашборд',
+      numbers: 'Номера',
+      users: 'Пользователи',
+      sms: 'История SMS',
+      settings: 'Настройки'
+    };
+    document.title = `${tabTitles[activeTab] || 'Панель'} | Fanytel Admin`;
   }, [activeTab]);
 
   // Data State
