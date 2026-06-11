@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Search, Download, Copy, Trash2 } from 'lucide-react';
-import { filterAndSortData, paginate } from '../utils';
+import { API_URL, filterAndSortData, paginate } from '../utils';
 import Pagination from './Pagination';
 import { format } from 'date-fns';
 import SmsText from './SmsText';
@@ -33,7 +33,7 @@ export default function SmsTable({
     
     try {
       const password = localStorage.getItem('adminPassword');
-      const res = await fetch('http://localhost:3000/api/sms/clear', {
+      const res = await fetch(`${API_URL}/sms/clear`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${password}` }
       });

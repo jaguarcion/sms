@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Save, Tag } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { API_URL } from '../utils';
 
 export default function UserProfileModal({ user, onClose, refreshData }) {
   const [notes, setNotes] = useState(user.notes || '');
@@ -11,7 +12,7 @@ export default function UserProfileModal({ user, onClose, refreshData }) {
     setIsSaving(true);
     try {
       const password = localStorage.getItem('adminPassword');
-      const res = await fetch(`http://localhost:3000/api/users/${user.telegram_id}/notes`, {
+      const res = await fetch(`${API_URL}/users/${user.telegram_id}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${password}` },
         body: JSON.stringify({ notes, tags })
