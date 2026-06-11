@@ -23,6 +23,8 @@ export const filterAndSortData = (data, keys, searchQuery, sortConfig) => {
   return result;
 };
 
+export const API_URL = import.meta.env.DEV ? 'http://localhost:3000/api' : '/api';
+
 export const paginate = (data, currentPage, itemsPerPage) => {
   const startIndex = (currentPage - 1) * itemsPerPage;
   return data.slice(startIndex, startIndex + itemsPerPage);

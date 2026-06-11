@@ -88,7 +88,7 @@ function App() {
   useEffect(() => {
     if (!password) return;
     
-    const eventSource = new EventSource(`http://localhost:3000/api/events?token=${encodeURIComponent(password)}`);
+    const eventSource = new EventSource(`${API_URL}/events?token=${encodeURIComponent(password)}`);
     
     eventSource.onmessage = (event) => {
       try {

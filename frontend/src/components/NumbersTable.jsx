@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Search, PlusCircle, Copy, CheckCircle2, MessageSquare, Printer, Download } from 'lucide-react';
-import { filterAndSortData, paginate } from '../utils';
+import { API_URL, filterAndSortData, paginate } from '../utils';
 import Pagination from './Pagination';
 
 export default function NumbersTable({
@@ -58,7 +58,7 @@ export default function NumbersTable({
     try {
       const password = localStorage.getItem('adminPassword');
       await Promise.all(Array.from(selectedIds).map(num => 
-        fetch('http://localhost:3000/api/numbers/unassign', {
+        fetch(`${API_URL}/numbers/unassign`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${password}` },
           body: JSON.stringify({ number: num })
